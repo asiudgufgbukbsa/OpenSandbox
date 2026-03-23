@@ -98,12 +98,18 @@ public class CodeInterpreterE2ETests : IClassFixture<CodeInterpreterE2ETestFixtu
 
         var py = await interpreter.Codes.RunAsync("print(1+2)", new RunCodeOptions { Language = SupportedLanguage.Python });
         Assert.Contains(py.Logs.Stdout, s => s.Text.Contains("3", StringComparison.Ordinal));
+        Assert.Null(py.ExitCode);
+        Assert.NotNull(py.Complete);
 
         var js = await interpreter.Codes.RunAsync("console.log(3+4)", new RunCodeOptions { Language = SupportedLanguage.JavaScript });
         Assert.Contains(js.Logs.Stdout, s => s.Text.Contains("7", StringComparison.Ordinal));
+        Assert.Null(js.ExitCode);
+        Assert.NotNull(js.Complete);
 
         var bash = await interpreter.Codes.RunAsync("echo $((8+9))", new RunCodeOptions { Language = SupportedLanguage.Bash });
         Assert.Contains(bash.Logs.Stdout, s => s.Text.Contains("17", StringComparison.Ordinal));
+        Assert.Null(bash.ExitCode);
+        Assert.NotNull(bash.Complete);
     }
 
     [Fact(Timeout = 6 * 60 * 1000)]
@@ -122,18 +128,24 @@ public class CodeInterpreterE2ETests : IClassFixture<CodeInterpreterE2ETestFixtu
                 new RunCodeOptions { Context = javaCtx });
             Assert.Null(javaResult.Error);
             Assert.True(HasText(javaResult, "java-ok") || HasText(javaResult, "5"));
+            Assert.Null(javaResult.ExitCode);
+            Assert.NotNull(javaResult.Complete);
 
             var goResult = await interpreter.Codes.RunAsync(
                 "package main\nimport \"fmt\"\nfunc main(){ fmt.Print(\"go-ok\") }",
                 new RunCodeOptions { Context = goCtx });
             Assert.Null(goResult.Error);
             Assert.True(HasText(goResult, "go-ok"));
+            Assert.Null(goResult.ExitCode);
+            Assert.NotNull(goResult.Complete);
 
             var tsResult = await interpreter.Codes.RunAsync(
                 "console.log('ts-ok'); const n: number = 3 + 4; console.log(n);",
                 new RunCodeOptions { Context = tsCtx });
             Assert.Null(tsResult.Error);
             Assert.True(HasText(tsResult, "ts-ok") || HasText(tsResult, "7"));
+            Assert.Null(tsResult.ExitCode);
+            Assert.NotNull(tsResult.Complete);
         }
         finally
         {

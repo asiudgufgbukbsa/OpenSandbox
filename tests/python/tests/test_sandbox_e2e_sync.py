@@ -780,6 +780,9 @@ class TestSandboxE2ESync:
         assert echo_result.logs.stdout[0].is_error is False
         _assert_recent_timestamp_ms(echo_result.logs.stdout[0].timestamp)
         assert len(echo_result.logs.stderr) == 0
+        assert echo_result.exit_code == 0
+        assert echo_result.complete is not None
+        assert echo_result.complete.execution_time_in_millis >= 0
 
         assert len(init_events) == 1
         assert len(completed_events) == 1
@@ -805,15 +808,18 @@ class TestSandboxE2ESync:
         assert pwd_result.logs.stdout[0].text == "/tmp"
         assert pwd_result.logs.stdout[0].is_error is False
         _assert_recent_timestamp_ms(pwd_result.logs.stdout[0].timestamp)
+        assert pwd_result.exit_code == 0
+        assert pwd_result.complete is not None
 
         start_time = time.time()
-        sandbox.commands.run(
+        background_result = sandbox.commands.run(
             "sleep 30",
             opts=RunCommandOpts(background=True),
         )
         end_time = time.time()
         execution_time_ms = (end_time - start_time) * 1000
         assert execution_time_ms < 10000
+        assert background_result.exit_code is None
 
         stdout_messages.clear()
         stderr_messages.clear()
@@ -834,6 +840,8 @@ class TestSandboxE2ESync:
         )
         assert all(m.is_error is True for m in fail_result.logs.stderr)
         _assert_recent_timestamp_ms(fail_result.logs.stderr[0].timestamp)
+        assert fail_result.complete is None
+        assert fail_result.exit_code == int(fail_result.error.value)
 
         assert len(init_events) == 1
         assert init_events[0].id == fail_result.id

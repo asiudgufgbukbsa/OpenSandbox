@@ -595,6 +595,9 @@ test("02 command execution: success, cwd, background, failure", async () => {
   expect(ok.logs.stdout).toHaveLength(1);
   expect(ok.logs.stdout[0]?.text).toBe("Hello OpenSandbox E2E");
   assertRecentTimestampMs(ok.logs.stdout[0]!.timestamp);
+  expect(ok.exitCode).toBe(0);
+  expect(ok.complete).toBeTruthy();
+  expect(ok.complete!.executionTimeMs).toBeGreaterThanOrEqual(0);
 
   expect(initEvents).toHaveLength(1);
   expect(completedEvents).toHaveLength(1);
@@ -603,10 +606,13 @@ test("02 command execution: success, cwd, background, failure", async () => {
   const pwd = await sandbox.commands.run("pwd", { workingDirectory: "/tmp" });
   expect(pwd.error).toBeUndefined();
   expect(pwd.logs.stdout[0]?.text).toBe("/tmp");
+  expect(pwd.exitCode).toBe(0);
+  expect(pwd.complete).toBeTruthy();
 
   const start = Date.now();
-  await sandbox.commands.run("sleep 30", { background: true });
+  const bg = await sandbox.commands.run("sleep 30", { background: true });
   expect(Date.now() - start).toBeLessThan(10_000);
+  expect(bg.exitCode ?? null).toBeNull();
 
   // failure contract: error exists; completion should be absent
   stdoutMessages.length = 0;
@@ -630,6 +636,8 @@ test("02 command execution: success, cwd, background, failure", async () => {
       m.text.includes("nonexistent-command-that-does-not-exist")
     )
   ).toBe(true);
+  expect(fail.complete).toBeUndefined();
+  expect(fail.exitCode).toBe(Number(fail.error?.value));
   expect(completedEvents.length).toBe(0);
 });
 

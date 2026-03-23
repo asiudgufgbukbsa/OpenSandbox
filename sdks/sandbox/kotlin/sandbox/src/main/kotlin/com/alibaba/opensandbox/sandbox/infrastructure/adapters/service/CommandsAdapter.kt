@@ -122,6 +122,11 @@ internal class CommandsAdapter(
                         }
                 }
             }
+            if (!request.background) {
+                execution.exitCode =
+                    execution.error?.value?.toIntOrNull()
+                        ?: if (execution.complete != null) 0 else null
+            }
             return execution
         } catch (e: Exception) {
             logger.error("Failed to run command (length: {})", request.command.length, e)

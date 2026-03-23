@@ -109,11 +109,13 @@ class CommandsAdapterTest {
                 .handlers(handlers)
                 .build()
 
-        commandsAdapter.run(request)
+        val execution = commandsAdapter.run(request)
 
         assertTrue(latch.await(2, TimeUnit.SECONDS), "Timed out waiting for completion event")
         assertEquals("Hello", receivedOutput.toString())
         assertEquals(100L, executionTime)
+        assertEquals(0, execution.exitCode)
+        assertEquals(100L, execution.complete?.executionTimeInMillis)
 
         val recordedRequest = mockWebServer.takeRequest()
         assertEquals("/command", recordedRequest.path)
@@ -127,6 +129,57 @@ class CommandsAdapterTest {
         assertEquals("debug", envs?.get("LOG_LEVEL")?.jsonPrimitive?.content)
         // Builder defaults background to false; request body always includes it
         assertEquals(false, requestBodyJson["background"]?.jsonPrimitive?.booleanOrNull)
+    }
+
+    @Test
+    fun `run should infer non-zero exit code from command error event`() {
+        val initEvent = """{"type":"init","text":"cmd-123","timestamp":1672531200000}"""
+        val errorEvent =
+            """{"type":"error","error":{"ename":"CommandExecError","evalue":"7","traceback":["exit status 7"]},"timestamp":1672531201000}"""
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBody("$initEvent\n$errorEvent\n"),
+        )
+
+        val execution =
+            commandsAdapter.run(
+                RunCommandRequest.builder()
+                    .command("exit 7")
+                    .build(),
+            )
+
+        assertEquals("cmd-123", execution.id)
+        assertEquals(7, execution.exitCode)
+        assertEquals("CommandExecError", execution.error?.name)
+        assertEquals("7", execution.error?.value)
+        assertEquals(null, execution.complete)
+    }
+
+    @Test
+    fun `run should infer exit code from final execution state regardless of event order`() {
+        val initEvent = """{"type":"init","text":"cmd-123","timestamp":1672531200000}"""
+        val completeEvent = """{"type":"execution_complete","execution_time":100,"timestamp":1672531201000}"""
+        val errorEvent =
+            """{"type":"error","error":{"ename":"CommandExecError","evalue":"7","traceback":["exit status 7"]},"timestamp":1672531202000}"""
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBody("$initEvent\n$completeEvent\n$errorEvent\n"),
+        )
+
+        val execution =
+            commandsAdapter.run(
+                RunCommandRequest.builder()
+                    .command("exit 7")
+                    .build(),
+            )
+
+        assertEquals(7, execution.exitCode)
+        assertEquals(100L, execution.complete?.executionTimeInMillis)
+        assertEquals("7", execution.error?.value)
     }
 
     @Test

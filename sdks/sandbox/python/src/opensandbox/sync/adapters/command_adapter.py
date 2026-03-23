@@ -51,6 +51,17 @@ from opensandbox.sync.services.command import CommandsSync
 logger = logging.getLogger(__name__)
 
 
+def _infer_foreground_exit_code(execution: Execution) -> int | None:
+    if execution.error is not None:
+        try:
+            return int(execution.error.value)
+        except (TypeError, ValueError):
+            return None
+    if execution.complete is not None:
+        return 0
+    return None
+
+
 class CommandsAdapterSync(CommandsSync):
     """
     Synchronous implementation of :class:`~opensandbox.sync.services.command.CommandsSync`.
@@ -156,6 +167,9 @@ class CommandsAdapterSync(CommandsSync):
                         dispatcher.dispatch(event_node)
                     except Exception as e:
                         logger.error("Failed to parse SSE line: %s", line, exc_info=e)
+
+            if not opts.background:
+                execution.exit_code = _infer_foreground_exit_code(execution)
 
             return execution
 

@@ -572,6 +572,9 @@ public class SandboxE2ETests : IClassFixture<SandboxE2ETestFixture>
         Assert.Single(echoResult.Logs.Stdout);
         Assert.Equal("Hello OpenSandbox E2E", echoResult.Logs.Stdout[0].Text);
         AssertRecentTimestampMs(echoResult.Logs.Stdout[0].Timestamp, 60_000);
+        Assert.Equal(0, echoResult.ExitCode);
+        Assert.NotNull(echoResult.Complete);
+        Assert.True(echoResult.Complete!.ExecutionTimeMs >= 0);
         AssertTerminalEventContract(initEvents, completedEvents, errors, echoResult.Id!);
 
         var pwdResult = await sandbox.Commands.RunAsync(
@@ -580,13 +583,16 @@ public class SandboxE2ETests : IClassFixture<SandboxE2ETestFixture>
         Assert.Null(pwdResult.Error);
         Assert.Single(pwdResult.Logs.Stdout);
         Assert.Equal("/tmp", pwdResult.Logs.Stdout[0].Text);
+        Assert.Equal(0, pwdResult.ExitCode);
+        Assert.NotNull(pwdResult.Complete);
 
         var start = DateTime.UtcNow;
-        await sandbox.Commands.RunAsync(
+        var backgroundResult = await sandbox.Commands.RunAsync(
             "sleep 30",
             options: new RunCommandOptions { Background = true });
         var elapsed = DateTime.UtcNow - start;
         Assert.True(elapsed.TotalSeconds < 10, "Background command should return quickly.");
+        Assert.Null(backgroundResult.ExitCode);
 
         stdoutMessages = new ConcurrentBag<OutputMessage>();
         stderrMessages = new ConcurrentBag<OutputMessage>();
@@ -611,6 +617,9 @@ public class SandboxE2ETests : IClassFixture<SandboxE2ETestFixture>
         Assert.Contains(
             failResult.Logs.Stderr,
             msg => msg.Text.Contains("nonexistent-command-that-does-not-exist", StringComparison.Ordinal));
+        Assert.Null(failResult.Complete);
+        Assert.NotNull(failResult.ExitCode);
+        Assert.Equal(int.Parse(failResult.Error.Value), failResult.ExitCode);
         AssertTerminalEventContract(initEvents, completedEvents, errors, failResult.Id!);
         Assert.Empty(completedEvents);
     }

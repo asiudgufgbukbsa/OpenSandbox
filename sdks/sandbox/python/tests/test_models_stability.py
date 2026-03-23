@@ -312,6 +312,8 @@ def test_execution_str_with_error() -> None:
 def test_execution_str_empty() -> None:
     ex = Execution()
     assert str(ex) == ""
+    assert ex.complete is None
+    assert ex.exit_code is None
 
 
 def test_execution_text_property() -> None:

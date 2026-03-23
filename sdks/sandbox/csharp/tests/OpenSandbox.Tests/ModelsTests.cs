@@ -35,6 +35,7 @@ public class ModelsTests
         execution.Results.Should().BeEmpty();
         execution.Error.Should().BeNull();
         execution.Complete.Should().BeNull();
+        execution.ExitCode.Should().BeNull();
     }
 
     [Fact]

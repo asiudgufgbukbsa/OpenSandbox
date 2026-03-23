@@ -25,8 +25,8 @@ from io import BytesIO
 
 import pytest
 from opensandbox import Sandbox
-from opensandbox.constants import DEFAULT_EGRESS_PORT
 from opensandbox.config import ConnectionConfig
+from opensandbox.constants import DEFAULT_EGRESS_PORT
 from opensandbox.exceptions import SandboxApiException
 from opensandbox.models.execd import (
     ExecutionComplete,
@@ -872,6 +872,10 @@ class TestSandboxE2E:
         assert echo_result.logs.stdout[0].is_error is False
         _assert_recent_timestamp_ms(echo_result.logs.stdout[0].timestamp)
         assert len(echo_result.logs.stderr) == 0
+        assert echo_result.exit_code == 0
+        assert echo_result.complete is not None
+        assert echo_result.complete.execution_time_in_millis >= 0
+        _assert_recent_timestamp_ms(echo_result.complete.timestamp)
 
         # Verify handlers captured events
         assert len(init_events) == 1, "Execution should have exactly one init event"
@@ -910,11 +914,13 @@ class TestSandboxE2E:
         assert pwd_result.logs.stdout[0].text == "/tmp"
         assert pwd_result.logs.stdout[0].is_error is False
         _assert_recent_timestamp_ms(pwd_result.logs.stdout[0].timestamp)
+        assert pwd_result.exit_code == 0
+        assert pwd_result.complete is not None
         logger.info(f"✓ PWD command executed: {pwd_result}")
 
         logger.info("Step 3: Background command")
         start_time = time.time()
-        await sandbox.commands.run(
+        background_result = await sandbox.commands.run(
             "sleep 30",
             opts=RunCommandOpts(background=True),
         )
@@ -923,6 +929,7 @@ class TestSandboxE2E:
         execution_time = (end_time - start_time) * 1000
         assert execution_time < 10000, \
             f"Background command should return quickly, but took {execution_time} ms"
+        assert background_result.exit_code is None
         logger.info(f"✓ Background command returned in {execution_time:.2f} ms")
 
         logger.info("Step 4: Test failing command")
@@ -949,6 +956,8 @@ class TestSandboxE2E:
         )
         assert all(m.is_error is True for m in fail_result.logs.stderr)
         _assert_recent_timestamp_ms(fail_result.logs.stderr[0].timestamp)
+        assert fail_result.complete is None
+        assert fail_result.exit_code == int(fail_result.error.value)
 
         # Verify handlers captured error events
         assert len(init_events) == 1, "Execution should have exactly one init event"

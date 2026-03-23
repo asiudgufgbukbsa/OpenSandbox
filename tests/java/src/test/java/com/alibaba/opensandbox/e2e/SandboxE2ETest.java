@@ -399,8 +399,9 @@ public class SandboxE2ETest extends BaseE2ETest {
         try {
             SandboxEndpoint egressEndpoint = policySandbox.getEndpoint(18080);
             assertTrue(
-                    egressEndpoint.getEndpoint().contains(
-                            "/sandboxes/" + policySandbox.getId() + "/proxy/18080"));
+                    egressEndpoint
+                            .getEndpoint()
+                            .contains("/sandboxes/" + policySandbox.getId() + "/proxy/18080"));
 
             NetworkPolicy initialPolicy = policySandbox.getEgressPolicy();
             assertNotNull(initialPolicy);
@@ -921,6 +922,11 @@ public class SandboxE2ETest extends BaseE2ETest {
         assertFalse(echoResult.getLogs().getStdout().get(0).isError());
         assertRecentTimestampMs(echoResult.getLogs().getStdout().get(0).getTimestamp(), 60_000);
         assertEquals(0, echoResult.getLogs().getStderr().size());
+        assertEquals(0, echoResult.getExitCode());
+        ExecutionComplete echoComplete = echoResult.getComplete();
+        assertNotNull(echoComplete);
+        assertTrue(echoComplete.getExecutionTimeInMillis() >= 0);
+        assertRecentTimestampMs(echoComplete.getTimestamp(), 180_000);
 
         assertTerminalEventContract(initEvents, completedEvents, errors, echoResult.getId());
         assertEquals(1, stdoutMessages.size());
@@ -940,12 +946,16 @@ public class SandboxE2ETest extends BaseE2ETest {
         assertEquals("/tmp", pwdResult.getLogs().getStdout().get(0).getText());
         assertFalse(pwdResult.getLogs().getStdout().get(0).isError());
         assertRecentTimestampMs(pwdResult.getLogs().getStdout().get(0).getTimestamp(), 60_000);
+        assertEquals(0, pwdResult.getExitCode());
+        ExecutionComplete pwdComplete = pwdResult.getComplete();
+        assertNotNull(pwdComplete);
+        assertTrue(pwdComplete.getExecutionTimeInMillis() >= 0);
 
         long startTime = System.currentTimeMillis();
         RunCommandRequest backgroundRequest =
                 RunCommandRequest.builder().command("sleep 30").background(true).build();
 
-        sandbox.commands().run(backgroundRequest);
+        Execution backgroundResult = sandbox.commands().run(backgroundRequest);
         long endTime = System.currentTimeMillis();
 
         long executionTime = endTime - startTime;
@@ -953,6 +963,7 @@ public class SandboxE2ETest extends BaseE2ETest {
                 executionTime < 10000,
                 String.format(
                         "Background command should return quickly, but took %d ms", executionTime));
+        assertNull(backgroundResult.getExitCode());
 
         // Failure case: contract error OR complete (mutually exclusive) and error must be present.
         stdoutMessages.clear();
@@ -982,6 +993,10 @@ public class SandboxE2ETest extends BaseE2ETest {
                                                         "nonexistent-command-that-does-not-exist")));
         assertTrue(failResult.getLogs().getStderr().stream().allMatch(OutputMessage::isError));
         assertRecentTimestampMs(failResult.getLogs().getStderr().get(0).getTimestamp(), 60_000);
+        assertNull(failResult.getComplete());
+        Integer failExitCode = failResult.getExitCode();
+        assertNotNull(failExitCode);
+        assertEquals(Integer.valueOf(failResult.getError().getValue()), failExitCode);
 
         assertTerminalEventContract(initEvents, completedEvents, errors, failResult.getId());
         assertTrue(completedEvents.isEmpty(), "Failing command should not emit completion event");

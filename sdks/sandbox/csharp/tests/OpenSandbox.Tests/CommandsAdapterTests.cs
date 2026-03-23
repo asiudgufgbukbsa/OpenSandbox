@@ -181,6 +181,62 @@ public class CommandsAdapterTests
             .WithMessage("*uid is required when gid is provided*");
     }
 
+    [Fact]
+    public async Task RunAsync_ShouldPopulateCompleteAndExitCodeForSuccessfulForegroundCommands()
+    {
+        var handler = new StubHttpMessageHandler((_, _) =>
+        {
+            const string sse = """
+data: {"type":"init","text":"cmd-1","timestamp":1}
+
+data: {"type":"stdout","text":"hi","timestamp":2}
+
+data: {"type":"execution_complete","timestamp":3,"execution_time":4}
+
+""";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(sse, Encoding.UTF8, "text/event-stream")
+            });
+        });
+        var adapter = CreateAdapter(handler);
+
+        var execution = await adapter.RunAsync("echo hi");
+
+        execution.Id.Should().Be("cmd-1");
+        execution.Logs.Stdout.Should().ContainSingle().Which.Text.Should().Be("hi");
+        execution.Complete.Should().NotBeNull();
+        execution.Complete!.ExecutionTimeMs.Should().Be(4);
+        execution.ExitCode.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task RunAsync_ShouldInferNonZeroExitCodeFromFinalErrorState()
+    {
+        var handler = new StubHttpMessageHandler((_, _) =>
+        {
+            const string sse = """
+data: {"type":"init","text":"cmd-2","timestamp":1}
+
+data: {"type":"error","error":{"ename":"CommandExecError","evalue":"7","traceback":["exit status 7"]},"timestamp":2}
+
+""";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(sse, Encoding.UTF8, "text/event-stream")
+            });
+        });
+        var adapter = CreateAdapter(handler);
+
+        var execution = await adapter.RunAsync("exit 7");
+
+        execution.Id.Should().Be("cmd-2");
+        execution.Error.Should().NotBeNull();
+        execution.Error!.Value.Should().Be("7");
+        execution.Complete.Should().BeNull();
+        execution.ExitCode.Should().Be(7);
+    }
+
     // --- Bash session API integration tests ---
 
     [Fact]
