@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
@@ -406,12 +407,32 @@ func (r *PoolReconciler) scalePool(ctx context.Context, args *scaleArgs) error {
 
 	if desiredTotalCnt > totalCnt { // Need to create pod
 		createCnt := desiredTotalCnt - totalCnt
-		log.Info("Scaling up pool", "pool", pool.Name, "createCnt", createCnt)
-		for range createCnt {
-			if err := r.createPoolPod(ctx, pool, args.latestRevision); err != nil {
-				log.Error(err, "Failed to create pool pod")
-				errs = append(errs, err)
+
+		// Apply maxUnavailable constraint
+		maxUnavailable := r.getMaxUnavailable(pool, desiredTotalCnt)
+		notReadyCnt := r.countNotReadyPods(pods)
+		availableSlots := maxUnavailable - notReadyCnt
+		if availableSlots > 0 {
+			if createCnt > availableSlots {
+				createCnt = availableSlots
 			}
+		} else {
+			createCnt = 0 // Cannot create more, already at limit
+		}
+
+		if createCnt > 0 {
+			log.Info("Scaling up pool with constraint", "pool", pool.Name,
+				"createCnt", createCnt, "maxUnavailable", maxUnavailable,
+				"notReadyCnt", notReadyCnt, "desiredTotalCnt", desiredTotalCnt)
+			for range createCnt {
+				if err := r.createPoolPod(ctx, pool, args.latestRevision); err != nil {
+					log.Error(err, "Failed to create pool pod")
+					errs = append(errs, err)
+				}
+			}
+		} else {
+			log.Info("Pool scaling paused, maxUnavailable limit reached", "pool", pool.Name,
+				"maxUnavailable", maxUnavailable, "notReadyCnt", notReadyCnt)
 		}
 	} else if desiredTotalCnt < totalCnt || len(redundantPods) > 0 { // Need to delete pod
 		scaleIn := int32(0)
@@ -495,6 +516,37 @@ func (r *PoolReconciler) pickPodsToDelete(pods []*corev1.Pod, idlePodNames []str
 		scaleIn -= 1
 	}
 	return podsToDelete
+}
+
+// getMaxUnavailable returns the resolved maxUnavailable value.
+// If not specified, defaults to 25% of desiredTotal.
+// Minimum return value is 1 to ensure scaling progress.
+func (r *PoolReconciler) getMaxUnavailable(pool *sandboxv1alpha1.Pool, desiredTotal int32) int32 {
+	defaultPercentage := intstr.FromString("25%")
+
+	maxUnavailable := &defaultPercentage
+	if pool.Spec.ScaleStrategy != nil && pool.Spec.ScaleStrategy.MaxUnavailable != nil {
+		maxUnavailable = pool.Spec.ScaleStrategy.MaxUnavailable
+	}
+
+	result, err := intstr.GetScaledValueFromIntOrPercent(maxUnavailable, int(desiredTotal), true)
+	if err != nil || result < 1 {
+		result = 1
+	}
+	return int32(result)
+}
+
+// countNotReadyPods returns the count of pods that are not ready.
+// A pod is considered not ready if it doesn't have a Ready condition
+// with status True.
+func (r *PoolReconciler) countNotReadyPods(pods []*corev1.Pod) int32 {
+	var count int32
+	for _, pod := range pods {
+		if !utils.IsPodReady(pod) {
+			count++
+		}
+	}
+	return count
 }
 
 func (r *PoolReconciler) createPoolPod(ctx context.Context, pool *sandboxv1alpha1.Pool, latestRevision string) error {
