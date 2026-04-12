@@ -622,6 +622,7 @@ func TestBatchSandboxReconciler_scheduleTasks(t *testing.T) {
 		fields              fields
 		args                args
 		wantErr             bool
+		wantTaskStatus      taskScheduleResult
 		batchSandboxChecker func(bsbx *sandboxv1alpha1.BatchSandbox) error
 	}{
 		{
@@ -653,6 +654,7 @@ func TestBatchSandboxReconciler_scheduleTasks(t *testing.T) {
 				}(),
 				batchSbx: fakeBatchSandbox.DeepCopy(),
 			},
+			wantTaskStatus: taskScheduleResult{Succeed: 1},
 			batchSandboxChecker: func(bsbx *sandboxv1alpha1.BatchSandbox) error {
 				release, err := parseSandboxReleased(bsbx)
 				if err != nil {
@@ -660,13 +662,6 @@ func TestBatchSandboxReconciler_scheduleTasks(t *testing.T) {
 				}
 				if len(release.Pods) != 1 || release.Pods[0] != "pod-0" {
 					return fmt.Errorf("expect pod-0, actual %v", release.Pods)
-				}
-				//  check status
-				if bsbx.Status.TaskSucceed != 1 {
-					return fmt.Errorf("expect status.succeed=1, actual %d", bsbx.Status.TaskRunning)
-				}
-				if bsbx.Status.TaskRunning != 0 || bsbx.Status.TaskFailed != 0 || bsbx.Status.TaskUnknown != 0 {
-					return fmt.Errorf("expect status.running=0,failed=0,unknown=0, actual %v", bsbx.Status)
 				}
 				return nil
 			},
@@ -680,8 +675,12 @@ func TestBatchSandboxReconciler_scheduleTasks(t *testing.T) {
 				Scheme:   tt.fields.Scheme,
 				Recorder: tt.fields.Recorder,
 			}
-			if err := r.scheduleTasks(tt.args.ctx, tt.args.tSch, tt.args.batchSbx); (err != nil) != tt.wantErr {
+			gotTaskStatus, err := r.scheduleTasks(tt.args.ctx, tt.args.tSch, tt.args.batchSbx)
+			if (err != nil) != tt.wantErr {
 				t.Errorf("BatchSandboxReconciler.scheduleTasks() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && !reflect.DeepEqual(gotTaskStatus, tt.wantTaskStatus) {
+				t.Errorf("BatchSandboxReconciler.scheduleTasks() = %v, want %v", gotTaskStatus, tt.wantTaskStatus)
 			}
 			if tt.batchSandboxChecker != nil {
 				bsbx := &sandboxv1alpha1.BatchSandbox{}

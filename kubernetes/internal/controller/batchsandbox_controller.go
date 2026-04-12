@@ -35,7 +35,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -57,6 +56,10 @@ var (
 	BatchSandboxScaleExpectations = expectations.NewScaleExpectations()
 	DurationStore                 = requeueduration.DurationStore{}
 )
+
+type taskScheduleResult struct {
+	Running, Failed, Succeed, Unknown, Pending int32
+}
 
 // BatchSandboxReconciler reconciles a BatchSandbox object
 type BatchSandboxReconciler struct {
@@ -192,12 +195,6 @@ func (r *BatchSandboxReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			aggErrors = append(aggErrors, err)
 		}
 	}
-	if !reflect.DeepEqual(newStatus, batchSbx.Status) {
-		log.Info("To update BatchSandbox status", "replicas", newStatus.Replicas, "allocated", newStatus.Allocated, "ready", newStatus.Ready)
-		if err := r.updateStatus(batchSbx, newStatus); err != nil {
-			aggErrors = append(aggErrors, err)
-		}
-	}
 
 	if taskStrategy.NeedTaskScheduling() {
 		// Because tasks are in-memory and there is no event mechanism, periodic reconciliation is required.
@@ -213,11 +210,16 @@ func (r *BatchSandboxReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			}
 		}
 		now := time.Now()
-		if err = r.scheduleTasks(ctx, sch, batchSbx); err != nil {
+		taskStatus, err := r.scheduleTasks(ctx, sch, batchSbx)
+		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to schedule tasks, err %w", err)
-		} else {
-			log.Info("schedule tasks completed", "costMs", time.Since(now).Milliseconds())
 		}
+		log.Info("schedule tasks completed", "costMs", time.Since(now).Milliseconds())
+		newStatus.TaskRunning = taskStatus.Running
+		newStatus.TaskFailed = taskStatus.Failed
+		newStatus.TaskSucceed = taskStatus.Succeed
+		newStatus.TaskUnknown = taskStatus.Unknown
+		newStatus.TaskPending = taskStatus.Pending
 		// check task cleanup is finished
 		if batchSbx.DeletionTimestamp != nil {
 			unfinishedTasks := r.getTasksCleanupUnfinished(batchSbx, sch)
@@ -241,6 +243,28 @@ func (r *BatchSandboxReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				}
 				return ctrl.Result{}, err
 			}
+		}
+	}
+
+	if !reflect.DeepEqual(newStatus, batchSbx.Status) {
+		log.Info("To update BatchSandbox status", "replicas", newStatus.Replicas, "allocated", newStatus.Allocated, "ready", newStatus.Ready)
+		patchData, err := json.Marshal(map[string]any{
+			"status": map[string]any{
+				"replicas":           newStatus.Replicas,
+				"allocated":          newStatus.Allocated,
+				"ready":              newStatus.Ready,
+				"observedGeneration": newStatus.ObservedGeneration,
+				"taskRunning":        newStatus.TaskRunning,
+				"taskFailed":         newStatus.TaskFailed,
+				"taskSucceed":        newStatus.TaskSucceed,
+				"taskUnknown":        newStatus.TaskUnknown,
+				"taskPending":        newStatus.TaskPending,
+			},
+		})
+		if err != nil {
+			aggErrors = append(aggErrors, err)
+		} else if err := r.Status().Patch(ctx, batchSbx, client.RawPatch(types.MergePatchType, patchData)); err != nil {
+			aggErrors = append(aggErrors, err)
 		}
 	}
 
@@ -358,10 +382,10 @@ func (r *BatchSandboxReconciler) deleteTaskScheduler(ctx context.Context, batchS
 	r.taskSchedulers.Delete(key)
 }
 
-func (r *BatchSandboxReconciler) scheduleTasks(ctx context.Context, tSch taskscheduler.TaskScheduler, batchSbx *sandboxv1alpha1.BatchSandbox) error {
+func (r *BatchSandboxReconciler) scheduleTasks(ctx context.Context, tSch taskscheduler.TaskScheduler, batchSbx *sandboxv1alpha1.BatchSandbox) (taskScheduleResult, error) {
 	log := logf.FromContext(ctx)
 	if err := tSch.Schedule(); err != nil {
-		return err
+		return taskScheduleResult{}, err
 	}
 	tasks := tSch.ListTask()
 	toReleasedPods := []string{}
@@ -393,25 +417,17 @@ func (r *BatchSandboxReconciler) scheduleTasks(ctx context.Context, tSch tasksch
 	if len(toReleasedPods) > 0 {
 		log.Info("try to release Pods", "count", len(toReleasedPods))
 		if err := r.releasePods(ctx, batchSbx, toReleasedPods); err != nil {
-			return err
+			return taskScheduleResult{}, err
 		}
 		log.Info("successfully released Pods", "count", len(toReleasedPods))
 	}
-	oldStatus := batchSbx.Status
-	newStatus := oldStatus.DeepCopy()
-	newStatus.ObservedGeneration = batchSbx.Generation
-	newStatus.TaskRunning = running
-	newStatus.TaskFailed = failed
-	newStatus.TaskSucceed = succeed
-	newStatus.TaskUnknown = unknown
-	newStatus.TaskPending = pending
-	if !reflect.DeepEqual(newStatus, oldStatus) {
-		log.Info("To update BatchSandbox status", "replicas", newStatus.Replicas, "task_running", newStatus.TaskRunning, "task_succeed", newStatus.TaskSucceed, "task_failed", newStatus.TaskFailed, "task_unknown", newStatus.TaskUnknown, "task_pending", newStatus.TaskPending)
-		if err := r.updateStatus(batchSbx, newStatus); err != nil {
-			return err
-		}
-	}
-	return nil
+	return taskScheduleResult{
+		Running: running,
+		Failed:  failed,
+		Succeed: succeed,
+		Unknown: unknown,
+		Pending: pending,
+	}, nil
 }
 
 func (r *BatchSandboxReconciler) getTasksCleanupUnfinished(batchSbx *sandboxv1alpha1.BatchSandbox, tSch taskscheduler.TaskScheduler) []taskscheduler.Task {
@@ -535,17 +551,6 @@ func parseIndex(pod *corev1.Pod) (int, error) {
 		return -1, gerrors.New("batchsandbox: Invalid pod Name")
 	}
 	return strconv.Atoi(pod.Name[idx+1:])
-}
-
-func (r *BatchSandboxReconciler) updateStatus(batchSandbox *sandboxv1alpha1.BatchSandbox, newStatus *sandboxv1alpha1.BatchSandboxStatus) error {
-	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		clone := &sandboxv1alpha1.BatchSandbox{}
-		if err := r.Get(context.TODO(), types.NamespacedName{Namespace: batchSandbox.Namespace, Name: batchSandbox.Name}, clone); err != nil {
-			return err
-		}
-		clone.Status = *newStatus
-		return r.Status().Update(context.TODO(), clone)
-	})
 }
 
 // SetupWithManager sets up the controller with the Manager.
