@@ -5,7 +5,7 @@ authors:
   - "@ninan-nn"
 creation-date: 2026-03-18
 last-updated: 2026-04-01
-status: draft
+status: implementing
 ---
 
 # OSEP-0010: OpenTelemetry Metrics and Logs (execd, egress, and ingress)
