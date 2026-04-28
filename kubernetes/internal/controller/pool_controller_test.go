@@ -1686,7 +1686,7 @@ var _ = Describe("collectRecycleResults", func() {
 			results: []recycleResult{
 				{sandboxName: "sbx-1", podName: "pod-1", status: &recycle.Status{State: recycle.StateSucceeded, NeedDelete: true}},
 			},
-			wantSucceedMap: map[string][]string{"sbx-1": {"pod-1", "pod-1"}},
+			wantSucceedMap: map[string][]string{"sbx-1": {"pod-1"}},
 			wantToDelete:   []string{"pod-1"},
 		},
 		{
@@ -1715,7 +1715,7 @@ var _ = Describe("collectRecycleResults", func() {
 				{sandboxName: "sbx-b", podName: "pod-4", err: stderrors.New("timeout")},
 			},
 			wantSucceedMap: map[string][]string{
-				"sbx-a": {"pod-1", "pod-2", "pod-2"},
+				"sbx-a": {"pod-1", "pod-2"},
 				"sbx-b": {"pod-3"},
 			},
 			wantToDelete:    []string{"pod-2"},
