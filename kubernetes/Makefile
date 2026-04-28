@@ -54,6 +54,8 @@ OPERATOR_SDK_VERSION ?= v1.42.0
 CONTROLLER_IMG ?= controller:dev
 # TASK_EXECUTOR_IMG defines the image for the task-executor service.
 TASK_EXECUTOR_IMG ?= task-executor:dev
+# IMAGE_COMMITTER_IMG defines the image for the image-committer service.
+IMAGE_COMMITTER_IMG ?= image-committer:dev
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -145,6 +147,12 @@ setup-test-e2e: install-kind ## Set up a Kind cluster for e2e tests if it does n
 			echo "Creating Kind cluster '$(KIND_CLUSTER)' with Kubernetes version $(KIND_K8S_VERSION)..."; \
 			$(KIND) create cluster --name $(KIND_CLUSTER) --image kindest/node:$(KIND_K8S_VERSION) ;; \
 	esac
+
+.PHONY: test-e2e-pause-resume
+test-e2e-pause-resume: setup-test-e2e manifests generate fmt vet 
+	CONTROLLER_IMG=$(CONTROLLER_IMG) TASK_EXECUTOR_IMG=$(TASK_EXECUTOR_IMG) \
+		KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -ginkgo.focus="PauseResume" -timeout $(E2E_TIMEOUT) $(GINKGO_ARGS)
+	$(MAKE) cleanup-test-e2e
 
 .PHONY: test-e2e-main
 test-e2e-main: setup-test-e2e manifests generate fmt vet 
@@ -278,6 +286,14 @@ docker-build-controller: ## Build docker image with the manager.
 .PHONY: docker-build-task-executor
 docker-build-task-executor: ## Build docker image with task-executor.
 	$(CONTAINER_TOOL) build $(DOCKER_BUILD_ARGS) --build-arg PACKAGE=cmd/task-executor/main.go --build-arg USERID=0 -t ${TASK_EXECUTOR_IMG} .
+
+.PHONY: docker-build-image-committer
+docker-build-image-committer: ## Build docker image for image commit operations.
+	$(CONTAINER_TOOL) build $(DOCKER_BUILD_ARGS) -f Dockerfile.image-committer -t ${IMAGE_COMMITTER_IMG} .
+
+.PHONY: docker-push-image-committer
+docker-push-image-committer: ## Push docker image for image-committer.
+	$(CONTAINER_TOOL) push ${IMAGE_COMMITTER_IMG}
 
 .PHONY: docker-push
 # docker-push: ## Push docker image with the manager.

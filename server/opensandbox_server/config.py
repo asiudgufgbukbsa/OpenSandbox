@@ -563,6 +563,14 @@ class KubernetesRuntimeConfig(BaseModel):
             "If unset, no resource constraints are applied."
         ),
     )
+    image_pull_policy: Optional[str] = Field(
+        default="IfNotPresent",
+        description=(
+            "Image pull policy for sandbox containers. "
+            "Values: Always, IfNotPresent, Never. "
+            "Can be overridden per-sandbox via image.pull_policy in create request."
+        ),
+    )
 
 
 class ExecdInitResources(BaseModel):
@@ -800,7 +808,6 @@ class AppConfig(BaseModel):
         default=None,
         description="Secure container runtime configuration (gVisor, Kata, Firecracker).",
     )
-
     @model_validator(mode="after")
     def validate_runtime_blocks(self) -> "AppConfig":
         if self.runtime.type == "docker":

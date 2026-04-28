@@ -251,7 +251,7 @@ async def pause_sandbox(
     Pause execution while retaining state.
 
     Pauses a running sandbox while preserving its state.
-    Poll GET /sandboxes/{sandboxId} to track state transition to Paused.
+    Poll GET /sandboxes/{sandboxId} to track state transition through Pausing and eventually Paused.
 
     Args:
         sandbox_id: Unique sandbox identifier
@@ -288,7 +288,7 @@ async def resume_sandbox(
     Resume a paused sandbox.
 
     Resumes execution of a paused sandbox.
-    Poll GET /sandboxes/{sandboxId} to track state transition to Running.
+    Poll GET /sandboxes/{sandboxId} to track state transition through Resuming and eventually Running.
 
     Args:
         sandbox_id: Unique sandbox identifier
