@@ -117,8 +117,8 @@ paths:
         - `snapshotId` to restore from a previously created snapshot.
 
         When `image` is provided, `entrypoint` is required. When `snapshotId` is
-        provided, `entrypoint` must be omitted because the restored snapshot carries
-        its startup process.
+        provided, `entrypoint` is optional. If omitted, the server defaults the
+        sandbox entrypoint to `["tail", "-f", "/dev/null"]`.
 
         ## Authentication
 
@@ -192,6 +192,15 @@ paths:
                   resourceLimits:
                     cpu: "500m"
                     memory: "512Mi"
+              restore-snapshot-with-entrypoint:
+                summary: Restore from a snapshot with a custom entrypoint
+                value:
+                  snapshotId: snap_123
+                  timeout: 3600
+                  resourceLimits:
+                    cpu: "500m"
+                    memory: "512Mi"
+                  entrypoint: ["python", "/workspace/app.py"]
       responses:
         '202':
           description: |
@@ -302,12 +311,14 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalServerError'
     delete:
       tags: [Snapshots]
       summary: Delete a snapshot
-      description: Delete a persistent sandbox snapshot by id.
+      description: Delete a persistent sandbox snapshot by id. Snapshots that are still being created cannot be deleted.
       responses:
         '204':
           description: Snapshot successfully deleted
@@ -320,6 +331,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalServerError'
   /sandboxes/{sandboxId}:
@@ -827,6 +840,7 @@ components:
 
         Common state values:
         - Creating: Snapshot creation has been accepted and runtime capture is in progress.
+        - Deleting: Snapshot deletion has been requested and cleanup is in progress.
         - Ready: Snapshot is available for restoring sandboxes.
         - Failed: Snapshot creation failed.
 
@@ -1041,8 +1055,8 @@ components:
         Exactly one of `image` or `snapshotId` must be provided.
 
         When `image` is provided, `entrypoint` is required. When `snapshotId` is
-        provided, `entrypoint` must be omitted because the restored snapshot carries
-        its startup process.
+        provided, `entrypoint` is optional. If omitted, the server defaults the
+        sandbox entrypoint to `["tail", "-f", "/dev/null"]`.
 
         **Note**: API Key authentication is required via the `OPEN-SANDBOX-API-KEY` header.
       properties:
@@ -1117,8 +1131,10 @@ components:
           description: |
             The command to execute as the sandbox's entry process.
 
-            Required when `image` is provided. Must be omitted when `snapshotId`
-            is provided because the restored snapshot carries its startup process.
+            Required when `image` is provided.
+
+            Optional when `snapshotId` is provided. If omitted for snapshot
+            restore, the server defaults to `["tail", "-f", "/dev/null"]`.
 
             Explicitly specifies the user's expected main process, allowing the sandbox management
             service to reliably inject control processes before executing this command.

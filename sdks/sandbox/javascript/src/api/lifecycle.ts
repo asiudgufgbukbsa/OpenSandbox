@@ -81,8 +81,8 @@ export interface paths {
          *     - `snapshotId` to restore from a previously created snapshot.
          *
          *     When `image` is provided, `entrypoint` is required. When `snapshotId` is
-         *     provided, `entrypoint` must be omitted because the restored snapshot carries
-         *     its startup process.
+         *     provided, `entrypoint` is optional. If omitted, the server defaults the
+         *     sandbox entrypoint to `["tail", "-f", "/dev/null"]`.
          *
          *     ## Authentication
          *
@@ -234,6 +234,7 @@ export interface paths {
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
                 500: components["responses"]["InternalServerError"];
             };
         };
@@ -241,7 +242,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a snapshot
-         * @description Delete a persistent sandbox snapshot by id.
+         * @description Delete a persistent sandbox snapshot by id. Snapshots that are still being created cannot be deleted.
          */
         delete: {
             parameters: {
@@ -266,6 +267,7 @@ export interface paths {
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
                 500: components["responses"]["InternalServerError"];
             };
         };
@@ -602,8 +604,14 @@ export interface paths {
                 query?: {
                     /** @description Whether to return a server-proxied URL */
                     use_server_proxy?: boolean;
-                    /** @description Unix epoch seconds for a signed route token (OSEP-0011) */
-                    expires?: number;
+                    /**
+                     * @description Optional. When set, the server **issues a signed** access route (OSEP-0011). The value
+                     *     is **Linux / Unix epoch seconds** — a decimal `uint64` count of **whole seconds** since
+                     *     the Unix epoch (`1970-01-01 00:00:00` UTC, same as POSIX / `time(2)`), not
+                     *     milliseconds. Normalized to `expires_b36` for the four-segment route token. Omit to
+                     *     get the unsigned/legacy response shape.
+                     */
+                    expires?: string;
                 };
                 header?: never;
                 path: {
@@ -630,6 +638,7 @@ export interface paths {
                         "application/json": components["schemas"]["Endpoint"];
                     };
                 };
+                400: components["responses"]["BadRequest"];
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
@@ -727,6 +736,7 @@ export interface components {
          *
          *     Common state values:
          *     - Creating: Snapshot creation has been accepted and runtime capture is in progress.
+         *     - Deleting: Snapshot deletion has been requested and cleanup is in progress.
          *     - Ready: Snapshot is available for restoring sandboxes.
          *     - Failed: Snapshot creation failed.
          *
@@ -897,8 +907,8 @@ export interface components {
          *     Exactly one of `image` or `snapshotId` must be provided.
          *
          *     When `image` is provided, `entrypoint` is required. When `snapshotId` is
-         *     provided, `entrypoint` must be omitted because the restored snapshot carries
-         *     its startup process.
+         *     provided, `entrypoint` is optional. If omitted, the server defaults the
+         *     sandbox entrypoint to `["tail", "-f", "/dev/null"]`.
          *
          *     **Note**: API Key authentication is required via the `OPEN-SANDBOX-API-KEY` header.
          */
@@ -962,8 +972,10 @@ export interface components {
             /**
              * @description The command to execute as the sandbox's entry process.
              *
-             *     Required when `image` is provided. Must be omitted when `snapshotId`
-             *     is provided because the restored snapshot carries its startup process.
+             *     Required when `image` is provided.
+             *
+             *     Optional when `snapshotId` is provided. If omitted for snapshot
+             *     restore, the server defaults to `["tail", "-f", "/dev/null"]`.
              *
              *     Explicitly specifies the user's expected main process, allowing the sandbox management
              *     service to reliably inject control processes before executing this command.

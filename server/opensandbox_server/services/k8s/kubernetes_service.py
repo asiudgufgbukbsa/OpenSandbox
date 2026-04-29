@@ -85,6 +85,7 @@ from opensandbox_server.services.validators import (
 )
 from opensandbox_server.services.k8s.client import K8sClient
 from opensandbox_server.services.k8s.provider_factory import create_workload_provider
+from opensandbox_server.services.snapshot_restore import resolve_sandbox_image_from_request
 
 logger = logging.getLogger(__name__)
 
@@ -402,7 +403,8 @@ class KubernetesSandboxService(K8sDiagnosticsMixin, SandboxService, ExtensionSer
         Raises:
             HTTPException: If creation fails, timeout, or invalid parameters
         """
-        ensure_entrypoint(request.entrypoint)
+        request = resolve_sandbox_image_from_request(request)
+        ensure_entrypoint(request.entrypoint or [])
         ensure_metadata_labels(request.metadata)
         ensure_platform_valid(request.platform)
         ensure_timeout_within_limit(
